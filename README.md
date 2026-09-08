@@ -1,31 +1,61 @@
 # Kamome Video Downloader
 
-A simple portable Windows GUI for [yt-dlp](https://github.com/yt-dlp/yt-dlp), developed by **Kamome Software**.
+**A simple portable Windows GUI for yt-dlp.**
 
-## Features
+> 🖼️ Embed the original video thumbnail directly into downloaded MP4 files.
+> No command line required.
 
-- Automatic analysis after pasting a video URL
-- Thumbnail, title, uploader and duration preview
-- Resolution / FPS / codec / estimated-size format selection
-- MP4 download and metadata embedding
-- Optional thumbnail embedding while keeping the thumbnail image
-- Firefox / Chrome / Edge cookie support
-- Japanese and English UI
-- Daily yt-dlp update check
-- Application update check via GitHub Releases
-- Restore previous window size, position and maximized state
+[Download Latest Release]
+[日本語 README]
+
+---
+
+## Why Kamome Video Downloader?
+
+Kamome Video Downloader is a lightweight Windows GUI for yt-dlp,
+designed for users who want a simple way to download videos without using the command line.
+
+Its standout feature is thumbnail embedding:
+the original video thumbnail can be embedded directly into the downloaded MP4 as cover art.
+
+## Highlights
+
+- 🖼️ Embed original video thumbnails into MP4 files
+- 🎬 Choose resolution, FPS, codec and format
+- 🔍 Automatic analysis after pasting a URL
+- 📝 Embed title, uploader, source URL and metadata
+- 🌐 Supports sites handled by yt-dlp
+- 🍪 Firefox / Chrome / Edge cookie support
+- 🇯🇵 Japanese and English UI
+- 📦 Fully portable — no installation required
+- 🔄 Built-in application update check
+
+## Screenshot
+
+（ここにアプリ画面のスクリーンショット）
+
+## Download
+
+Download the latest portable version from GitHub Releases.
+
+No installation required.
+Extract the ZIP and run:
+
+`KamomeVideoDownloader.exe`
 
 ## Portable edition
 
-No installer is required. Extract the release ZIP and run `KamomeVideoDownloader.exe`.
-Kamome stores its own settings in `settings.json` beside the executable rather than AppData or the Windows registry.
+Kamome stores its settings in `settings.json` beside the executable.
+It does not require installation and does not store its own settings in AppData or the Windows registry.
 
 ## Support
 
-[Support Kamome Software on Ko-fi](https://ko-fi.com/kamome92970)
+Support Kamome Software on Ko-fi
 
 ## Disclaimer
 
-Kamome Video Downloader is an independent GUI front-end and is not affiliated with or endorsed by Google LLC, YouTube, yt-dlp, or FFmpeg. Use it only for content you are authorized to download and follow the terms of each service and applicable law.
+Kamome Video Downloader is an independent GUI front-end and is not affiliated with or endorsed by Google LLC, YouTube, yt-dlp, or FFmpeg.
 
-日本語: [README_ja.md](README_ja.md)
+Use it only for content you are authorized to download and follow the terms of each service and applicable law.
+
+日本語: README_ja.md
