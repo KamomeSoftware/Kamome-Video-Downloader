@@ -21,6 +21,8 @@ the original video thumbnail can be embedded directly into the downloaded MP4 as
 ## Highlights
 
 - 🖼️ Embed original video thumbnails into MP4 files
+- 📝 Embed title, uploader and other metadata
+- 🔗 Save the original video URL in the MP4 metadata
 - 🎬 Choose resolution, FPS, codec and format
 - 🔍 Automatic analysis after pasting a URL
 - 📝 Embed title, uploader, source URL and metadata
