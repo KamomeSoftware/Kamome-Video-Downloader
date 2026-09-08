@@ -1,0 +1,10 @@
+.buildenv/
+build/
+dist/
+output/
+tools/
+*.spec
+__pycache__/
+*.pyc
+settings.json
+engine_update_check.txt

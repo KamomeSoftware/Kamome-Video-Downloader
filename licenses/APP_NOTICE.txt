@@ -1,0 +1,8 @@
+Kamome Video Downloader
+Developer: Kamome Software
+
+This application is an independent GUI front-end and is not affiliated with or endorsed by Google LLC, YouTube, yt-dlp, or FFmpeg.
+Use it only for content that you are authorized to download, and follow the terms of each service and applicable law.
+
+Third-party components used by the application include yt-dlp and FFmpeg.
+Their own license terms apply. Public redistribution should include the license/source notices required by the exact binaries being distributed.
