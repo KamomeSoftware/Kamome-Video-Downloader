@@ -1,9 +1,9 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
-title Kamome Video Downloader v0.6.3 - Portable Build
+title Kamome Video Downloader v0.6.4 - Portable Build
 
-set "VERSION=0.6.3"
+set "VERSION=0.6.4"
 set "APPNAME=KamomeVideoDownloader"
 set "PORTABLEDIR=output\KamomeVideoDownloader"
 set "ZIPFILE=output\KamomeVideoDownloader_v%VERSION%_Portable.zip"

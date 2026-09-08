@@ -17,7 +17,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 APP_NAME = "Kamome Video Downloader"
-APP_VERSION = "0.6.3"
+APP_VERSION = "0.6.4"
 
 
 def app_dir() -> Path:
@@ -161,9 +161,14 @@ class App(tk.Tk):
         self.format_map = {}
         self.url_after_id = None
         self.analysis_serial = 0
+        self.saved_window_state = "normal"
+        self.saved_window_geometry = "980x860"
+        self.last_normal_geometry = "980x860"
         self.app_cfg = self._load_app_config()
         self._load_settings()
         self._build_ui()
+        self._restore_window_state()
+        self.bind("<Configure>", self._remember_window_geometry, add="+")
         self.url_var.trace_add("write", self._on_url_changed)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._poll_queue)
@@ -196,16 +201,84 @@ class App(tk.Tk):
             lang = data.get("language")
             if lang in ("ja", "en"):
                 self.lang = lang
+            state = data.get("window_state")
+            if state in ("normal", "zoomed"):
+                self.saved_window_state = state
+            geometry = data.get("window_geometry")
+            if isinstance(geometry, str) and re.fullmatch(r"\d+x\d+[+-]\d+[+-]\d+", geometry):
+                self.saved_window_geometry = geometry
+                self.last_normal_geometry = geometry
+        except Exception:
+            pass
+
+    def _virtual_screen_rect(self):
+        # Use the Windows virtual desktop so saved positions also work with
+        # multi-monitor layouts, including monitors placed left/above primary.
+        if sys.platform.startswith("win"):
+            try:
+                import ctypes
+                user32 = ctypes.windll.user32
+                return (
+                    user32.GetSystemMetrics(76),  # SM_XVIRTUALSCREEN
+                    user32.GetSystemMetrics(77),  # SM_YVIRTUALSCREEN
+                    user32.GetSystemMetrics(78),  # SM_CXVIRTUALSCREEN
+                    user32.GetSystemMetrics(79),  # SM_CYVIRTUALSCREEN
+                )
+            except Exception:
+                pass
+        return (0, 0, self.winfo_screenwidth(), self.winfo_screenheight())
+
+    def _safe_geometry(self, geometry):
+        m = re.fullmatch(r"(\d+)x(\d+)([+-]\d+)([+-]\d+)", geometry or "")
+        if not m:
+            return "980x860"
+        w, h, x, y = map(int, m.groups())
+        vx, vy, vw, vh = self._virtual_screen_rect()
+        # Keep a usable part of the title bar on-screen if a monitor vanished.
+        w = max(860, min(w, max(860, vw)))
+        h = max(720, min(h, max(720, vh)))
+        min_visible_x = 120
+        min_visible_y = 60
+        x = min(max(x, vx - w + min_visible_x), vx + vw - min_visible_x)
+        y = min(max(y, vy), vy + vh - min_visible_y)
+        return f"{w}x{h}{x:+d}{y:+d}"
+
+    def _restore_window_state(self):
+        try:
+            geometry = self._safe_geometry(self.saved_window_geometry)
+            self.geometry(geometry)
+            self.last_normal_geometry = geometry
+            if self.saved_window_state == "zoomed":
+                self.after_idle(lambda: self.state("zoomed"))
+        except Exception:
+            pass
+
+    def _remember_window_geometry(self, event=None):
+        try:
+            if self.state() == "normal":
+                geometry = self.geometry()
+                if re.fullmatch(r"\d+x\d+[+-]\d+[+-]\d+", geometry):
+                    self.last_normal_geometry = geometry
         except Exception:
             pass
 
     def _save_settings(self):
         try:
+            state = self.state()
+            if state not in ("normal", "zoomed"):
+                state = self.saved_window_state if self.saved_window_state in ("normal", "zoomed") else "normal"
+            geometry = self.last_normal_geometry
+            if state == "normal":
+                current = self.geometry()
+                if re.fullmatch(r"\d+x\d+[+-]\d+[+-]\d+", current):
+                    geometry = current
             config_path().write_text(json.dumps({
                 "destination": self.dest_var.get().strip(),
                 "embed_thumbnail": self.thumb_var.get(),
                 "cookie_browser": self.cookie_var.get(),
                 "language": self.lang,
+                "window_state": state,
+                "window_geometry": geometry,
             }, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception:
             pass
