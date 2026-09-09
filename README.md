@@ -13,6 +13,8 @@ A simple portable Windows GUI for [yt-dlp](https://github.com/yt-dlp/yt-dlp), de
 - Japanese and English UI
 - Daily yt-dlp update check
 - Application update check via GitHub Releases
+- Update reminder options: Open, Later (suppressed for the day), or Skip this version
+- New Kamome application icon for EXE, window and taskbar
 - Restore previous window size, position and maximized state
 
 ## Portable edition

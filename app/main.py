@@ -17,7 +17,21 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 APP_NAME = "Kamome Video Downloader"
-APP_VERSION = "0.6.4"
+APP_VERSION = "0.6.5"
+APP_USER_MODEL_ID = "KamomeSoftware.KamomeVideoDownloader"
+
+
+def set_windows_app_id():
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+        except Exception:
+            pass
+
+
+def icon_path() -> Path:
+    return app_dir() / "assets" / "kamome.ico"
 
 
 def app_dir() -> Path:
@@ -62,7 +76,10 @@ I18N = {
 "embed_thumb":"動画にサムネイルを埋め込む", "download":"ダウンロード", "cancel":"キャンセル", "log":"ログ",
 "language":"言語", "lang_name":"日本語", "analyzing":"動画情報を解析中…", "thumb_wait":"サムネイル取得待ち…",
 "starting":"開始しています…", "done":"完了", "failed":"失敗しました", "downloading":"ダウンロード中…",
-"merging":"映像と音声を結合中…", "embedding":"サムネイルを埋め込み中…", "remux":"MP4に整えています…"
+"merging":"映像と音声を結合中…", "embedding":"サムネイルを埋め込み中…", "remux":"MP4に整えています…",
+"ready":"待機中", "analysis_done":"解析完了：{count}種類の映像形式", "analysis_failed":"解析に失敗しました",
+"preview_failed":"プレビューを取得できませんでした。", "no_thumbnail":"サムネイルなし",
+"unknown":"不明", "cancelled":"キャンセルしました", "cut":"切り取り", "copy":"コピー", "select_all":"すべて選択"
 },
 "en": {
 "support":"Support Development", "licenses":"Terms & Licenses", "updates":"Check for Updates",
@@ -75,11 +92,14 @@ I18N = {
 "embed_thumb":"Embed thumbnail in video", "download":"Download", "cancel":"Cancel", "log":"Log",
 "language":"Language", "lang_name":"English", "analyzing":"Analyzing video…", "thumb_wait":"Waiting for thumbnail…",
 "starting":"Starting…", "done":"Complete", "failed":"Failed", "downloading":"Downloading…",
-"merging":"Merging video and audio…", "embedding":"Embedding thumbnail…", "remux":"Preparing MP4…"
+"merging":"Merging video and audio…", "embedding":"Embedding thumbnail…", "remux":"Preparing MP4…",
+"ready":"Ready", "analysis_done":"Analysis complete: {count} video formats", "analysis_failed":"Analysis failed",
+"preview_failed":"Preview could not be loaded.", "no_thumbnail":"No thumbnail",
+"unknown":"Unknown", "cancelled":"Cancelled", "cut":"Cut", "copy":"Copy", "select_all":"Select All"
 }
 }
 
-TERMS_TEXT = """Kamome Video Downloader 利用上の注意
+TERMS_TEXT_JA = """Kamome Video Downloader 利用上の注意
 
 ・本ソフトは Google LLC / YouTube と提携・承認関係のない非公式ツールです。
 ・ダウンロードが許可されているコンテンツ、または利用者自身が権利を有するコンテンツに使用してください。
@@ -89,14 +109,24 @@ TERMS_TEXT = """Kamome Video Downloader 利用上の注意
 ・本ソフトの利用により発生した損害について、開発者は法令上許される範囲で責任を負いません。
 """
 
+TERMS_TEXT_EN = """Kamome Video Downloader - Terms of Use
 
-def human_size(n):
+- This software is an unofficial tool and is not affiliated with or endorsed by Google LLC or YouTube.
+- Use it only for content that you are authorized to download or content for which you hold the necessary rights.
+- Follow the terms of service of each website, copyright law, and all applicable laws and regulations.
+- This software uses yt-dlp and FFmpeg. Their respective license terms apply.
+- When browser cookies are enabled, yt-dlp reads cookies directly from the selected browser. Kamome Video Downloader itself does not store those cookies.
+- To the extent permitted by law, the developer is not liable for damages arising from use of this software.
+"""
+
+
+def human_size(n, unknown="Unknown"):
     if not n:
-        return "不明"
+        return unknown
     try:
         n = float(n)
     except Exception:
-        return "不明"
+        return unknown
     units = ["B", "KB", "MB", "GB", "TB"]
     i = 0
     while n >= 1024 and i < len(units) - 1:
@@ -105,7 +135,7 @@ def human_size(n):
     return f"{n:.1f} {units[i]}"
 
 
-def codec_name(vcodec):
+def codec_name(vcodec, unknown="Unknown"):
     v = (vcodec or "").lower()
     if v.startswith("vp09") or v.startswith("vp9"):
         return "VP9"
@@ -115,7 +145,7 @@ def codec_name(vcodec):
         return "H.264"
     if v.startswith("hev1") or v.startswith("hvc1") or "hevc" in v:
         return "HEVC"
-    return vcodec or "不明"
+    return vcodec or unknown
 
 
 def sanitize_windows_filename(name):
@@ -153,7 +183,7 @@ class App(tk.Tk):
         except Exception:
             sysloc = ""
         self.lang = "ja" if sysloc.startswith("ja") else "en"
-        self.status_var = tk.StringVar(value="待機中")
+        self.status_var = tk.StringVar(value=self._tr("ready"))
         self.progress_var = tk.DoubleVar(value=0)
         self.preview_photo = None
         self.preview_tmp = None
@@ -164,8 +194,15 @@ class App(tk.Tk):
         self.saved_window_state = "normal"
         self.saved_window_geometry = "980x860"
         self.last_normal_geometry = "980x860"
+        self.skipped_update_version = ""
+        self.update_later_version = ""
+        self.update_later_date = ""
         self.app_cfg = self._load_app_config()
         self._load_settings()
+        # The saved language can differ from the Windows locale used above.
+        # Refresh language-dependent state after settings are loaded.
+        self.status_var.set(self._tr("ready"))
+        self._apply_window_icon()
         self._build_ui()
         self._restore_window_state()
         self.bind("<Configure>", self._remember_window_geometry, add="+")
@@ -208,6 +245,17 @@ class App(tk.Tk):
             if isinstance(geometry, str) and re.fullmatch(r"\d+x\d+[+-]\d+[+-]\d+", geometry):
                 self.saved_window_geometry = geometry
                 self.last_normal_geometry = geometry
+            self.skipped_update_version = str(data.get("skipped_update_version") or "")
+            self.update_later_version = str(data.get("update_later_version") or "")
+            self.update_later_date = str(data.get("update_later_date") or "")
+        except Exception:
+            pass
+
+    def _apply_window_icon(self):
+        try:
+            p = icon_path()
+            if p.exists():
+                self.iconbitmap(default=str(p))
         except Exception:
             pass
 
@@ -279,6 +327,9 @@ class App(tk.Tk):
                 "language": self.lang,
                 "window_state": state,
                 "window_geometry": geometry,
+                "skipped_update_version": self.skipped_update_version,
+                "update_later_version": self.update_later_version,
+                "update_later_date": self.update_later_date,
             }, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception:
             pass
@@ -293,7 +344,8 @@ class App(tk.Tk):
         return I18N.get(self.lang, I18N["en"]).get(key, key)
 
     def _change_language(self, event=None):
-        new_lang = self.lang_var.get()
+        selected = self.lang_var.get()
+        new_lang = "ja" if selected == "jp" else selected
         if new_lang not in ("ja", "en") or new_lang == self.lang:
             return
         self.lang = new_lang
@@ -380,8 +432,8 @@ class App(tk.Tk):
         langbox = ttk.Frame(opts)
         langbox.pack(side="right")
         ttk.Label(langbox, text=self._tr("language")).pack(side="left", padx=(0, 6))
-        self.lang_var = tk.StringVar(value=self.lang)
-        lang_combo = ttk.Combobox(langbox, textvariable=self.lang_var, values=["ja", "en"], state="readonly", width=7)
+        self.lang_var = tk.StringVar(value="jp" if self.lang == "ja" else "en")
+        lang_combo = ttk.Combobox(langbox, textvariable=self.lang_var, values=["en", "jp"], state="readonly", width=7)
         lang_combo.pack(side="left")
         lang_combo.bind("<<ComboboxSelected>>", self._change_language)
 
@@ -405,11 +457,11 @@ class App(tk.Tk):
 
     def _install_entry_context_menu(self, entry):
         menu = tk.Menu(self, tearoff=False)
-        menu.add_command(label="切り取り", command=lambda: entry.event_generate("<<Cut>>"))
-        menu.add_command(label="コピー", command=lambda: entry.event_generate("<<Copy>>"))
-        menu.add_command(label="貼り付け", command=lambda: entry.event_generate("<<Paste>>"))
+        menu.add_command(label=self._tr("cut"), command=lambda: entry.event_generate("<<Cut>>"))
+        menu.add_command(label=self._tr("copy"), command=lambda: entry.event_generate("<<Copy>>"))
+        menu.add_command(label=self._tr("paste"), command=lambda: entry.event_generate("<<Paste>>"))
         menu.add_separator()
-        menu.add_command(label="すべて選択", command=lambda: (entry.select_range(0, "end"), entry.icursor("end")))
+        menu.add_command(label=self._tr("select_all"), command=lambda: (entry.select_range(0, "end"), entry.icursor("end")))
 
         def popup(event):
             try:
@@ -479,7 +531,7 @@ class App(tk.Tk):
             r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                encoding="utf-8", errors="replace", creationflags=creationflags)
             if r.returncode != 0:
-                err = (r.stderr or r.stdout or "解析に失敗しました").strip()
+                err = (r.stderr or r.stdout or self._tr("analysis_failed")).strip()
                 self.q.put(("analysis_error", (serial, err)))
                 return
             data = json.loads(r.stdout)
@@ -507,7 +559,7 @@ class App(tk.Tk):
             if not vcodec or vcodec == "none" or not height:
                 continue
             fps = int(round(f.get("fps") or 0))
-            codec = codec_name(vcodec)
+            codec = codec_name(vcodec, self._tr("unknown"))
             dynamic = f.get("dynamic_range") or "SDR"
             key = (int(height), fps, codec, dynamic, f.get("ext") or "")
             size = self._format_size(f, duration)
@@ -562,7 +614,7 @@ class App(tk.Tk):
             codec = f["codec"]
             if f.get("dynamic_range") and f["dynamic_range"] not in ("SDR", ""): 
                 codec += f" / {f['dynamic_range']}"
-            self.format_tree.insert("", "end", iid=iid, values=(res, f["fps"] or "-", codec, f["ext"], human_size(f["size"]), f["format_id"]))
+            self.format_tree.insert("", "end", iid=iid, values=(res, f["fps"] or "-", codec, f["ext"], human_size(f["size"], self._tr("unknown")), f["format_id"]))
             self.format_map[iid] = f
             if fallback_iid is None:
                 fallback_iid = iid
@@ -591,7 +643,7 @@ class App(tk.Tk):
             if thumbs:
                 url = thumbs[-1].get("url")
         if not url:
-            self.preview_label.configure(text="サムネイルなし")
+            self.preview_label.configure(text=self._tr("no_thumbnail"))
             return
         threading.Thread(target=self._thumbnail_worker, args=(url, serial), daemon=True).start()
 
@@ -634,7 +686,12 @@ class App(tk.Tk):
     def _validate_tools(self):
         missing = [str(p) for p in (YT_DLP, FFMPEG, FFPROBE) if not p.exists()]
         if missing:
-            messagebox.showerror("必要ファイルがありません", "toolsフォルダ内の必要ファイルが見つかりません。\n\n" + "\n".join(missing) + "\n\nbuild_portable.batをもう一度実行してください。")
+            messagebox.showerror(
+                "Required files are missing" if self.lang == "en" else "必要ファイルがありません",
+                ("Required files were not found in the tools folder.\n\n" + "\n".join(missing) + "\n\nPlease run build_portable.bat again.")
+                if self.lang == "en" else
+                ("toolsフォルダ内の必要ファイルが見つかりません。\n\n" + "\n".join(missing) + "\n\nbuild_portable.batをもう一度実行してください。")
+            )
             return False
         return True
 
@@ -649,18 +706,18 @@ class App(tk.Tk):
         dest = self.dest_var.get().strip()
         fmt = self._selected_format()
         if not url:
-            messagebox.showwarning("URL", "動画URLを貼り付けてください。")
+            messagebox.showwarning("URL", "Please paste a video URL." if self.lang == "en" else "動画URLを貼り付けてください。")
             return
         if not fmt:
-            messagebox.showwarning("映像形式", "一覧からダウンロードする映像形式を選択してください。")
+            messagebox.showwarning("Video format" if self.lang == "en" else "映像形式", "Please select a video format from the list." if self.lang == "en" else "一覧からダウンロードする映像形式を選択してください。")
             return
         if not dest:
-            messagebox.showwarning("保存先", "保存先を選んでください。")
+            messagebox.showwarning("Destination" if self.lang == "en" else "保存先", "Please select a destination folder." if self.lang == "en" else "保存先を選んでください。")
             return
         if not self._validate_tools():
             return
         if not self.video_info:
-            messagebox.showwarning("解析", "動画情報を解析してからダウンロードしてください。")
+            messagebox.showwarning("Analysis" if self.lang == "en" else "解析", "Please analyze the video before downloading." if self.lang == "en" else "動画情報を解析してからダウンロードしてください。")
             return
         Path(dest).mkdir(parents=True, exist_ok=True)
         self._save_settings()
@@ -669,7 +726,7 @@ class App(tk.Tk):
         final_path = Path(dest) / f"{title}.mp4"
         overwrite = False
         if final_path.exists():
-            ans = messagebox.askyesno("同名ファイルがあります", f"同名のファイルがすでに存在します。\n\n{final_path.name}\n\n上書きしますか？")
+            ans = messagebox.askyesno("File already exists" if self.lang == "en" else "同名ファイルがあります", (f"A file with the same name already exists.\n\n{final_path.name}\n\nOverwrite it?" if self.lang == "en" else f"同名のファイルがすでに存在します。\n\n{final_path.name}\n\n上書きしますか？"))
             if not ans:
                 return
             overwrite = True
@@ -678,7 +735,7 @@ class App(tk.Tk):
         self.download_btn.configure(state="disabled")
         self.cancel_btn.configure(state="normal")
         self.status_var.set(self._tr("starting"))
-        self._log(f"--- ダウンロード開始: {fmt['height']}p / {fmt['codec']} / format {fmt['format_id']} ---")
+        self._log(f"--- Download started: {fmt['height']}p / {fmt['codec']} / format {fmt['format_id']} ---")
         threading.Thread(target=self._worker, args=(url, dest, fmt, overwrite), daemon=True).start()
 
     def _worker(self, url, dest, fmt, overwrite):
@@ -744,43 +801,75 @@ class App(tk.Tk):
         if self.proc and self.proc.poll() is None:
             try:
                 self.proc.terminate()
-                self.status_var.set("キャンセルしました")
+                self.status_var.set(self._tr("cancelled"))
             except Exception:
                 pass
 
     def _friendly_error(self, text):
         t = text or ""
         low = t.lower()
+        en = self.lang == "en"
         if "sign in to confirm" in low and "not a bot" in low:
-            return "YouTubeからbot確認を求められました。\n\n上部の『YouTube認証Cookie』で、YouTubeにログイン済みのFirefox / Chrome / Edgeを選び、再解析してください。"
+            return (
+                "YouTube requested bot verification.\n\nSelect Firefox / Chrome / Edge signed in to YouTube under 'YouTube Cookies', then analyze the URL again."
+                if en else
+                "YouTubeからbot確認を求められました。\n\n上部の『YouTube認証Cookie』で、YouTubeにログイン済みのFirefox / Chrome / Edgeを選び、再解析してください。"
+            )
         if "requested format is not available" in low:
-            return "選択した映像形式が現在取得できません。動画を再解析して、一覧から別の形式を選んでください。"
+            return (
+                "The selected video format is currently unavailable. Analyze the video again and select another format from the list."
+                if en else
+                "選択した映像形式が現在取得できません。動画を再解析して、一覧から別の形式を選んでください。"
+            )
         if "private video" in low:
-            return "非公開動画のため取得できません。アクセス権のあるブラウザCookieを選択してください。"
+            return (
+                "This is a private video. Select browser cookies from an account that has access."
+                if en else
+                "非公開動画のため取得できません。アクセス権のあるブラウザCookieを選択してください。"
+            )
         if "video unavailable" in low:
-            return "動画を取得できませんでした。地域制限、削除、ログイン条件などを確認してください。"
+            return (
+                "The video could not be accessed. Check for regional restrictions, deletion, or sign-in requirements."
+                if en else
+                "動画を取得できませんでした。地域制限、削除、ログイン条件などを確認してください。"
+            )
         if "cookies" in low and "browser" in low:
-            return "ブラウザCookieの読み取りに失敗しました。対象ブラウザを一度終了して再試行するか、別のブラウザを選んでください。"
-        return "処理に失敗しました。下部のログに詳細を表示しました。"
+            return (
+                "Browser cookies could not be read. Close the selected browser and try again, or select a different browser."
+                if en else
+                "ブラウザCookieの読み取りに失敗しました。対象ブラウザを一度終了して再試行するか、別のブラウザを選んでください。"
+            )
+        return (
+            "The operation failed. Details are shown in the log below."
+            if en else
+            "処理に失敗しました。下部のログに詳細を表示しました。"
+        )
 
     def _support(self):
         url = (self.app_cfg.get("support_url") or "").strip()
         if not url:
-            messagebox.showinfo("開発を支援", "支援ページURLはまだ設定されていません。\n\n公開前に app_config.json の support_url に OFUSE / Ko-fi などのURLを設定してください。")
+            messagebox.showinfo("Support Development" if self.lang == "en" else "開発を支援", ("The support page URL has not been configured yet.\n\nSet support_url in app_config.json before publishing." if self.lang == "en" else "支援ページURLはまだ設定されていません。\n\n公開前に app_config.json の support_url に OFUSE / Ko-fi などのURLを設定してください。"))
             return
         webbrowser.open(url)
 
     def _show_licenses(self):
         win = tk.Toplevel(self)
-        win.title("利用上の注意・ライセンス")
+        en = self.lang == "en"
+        win.title("Terms & Licenses" if en else "利用上の注意・ライセンス")
         win.geometry("760x620")
+        try:
+            p = icon_path()
+            if p.exists():
+                win.iconbitmap(default=str(p))
+        except Exception:
+            pass
         notebook = ttk.Notebook(win)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
         terms = tk.Text(notebook, wrap="word")
-        terms.insert("1.0", TERMS_TEXT)
+        terms.insert("1.0", TERMS_TEXT_EN if en else TERMS_TEXT_JA)
         terms.configure(state="disabled")
-        notebook.add(terms, text="利用上の注意")
+        notebook.add(terms, text="Terms of Use" if en else "利用上の注意")
 
         licenses = tk.Text(notebook, wrap="word")
         blocks = []
@@ -791,10 +880,10 @@ class App(tk.Tk):
                 except Exception:
                     pass
         if not blocks:
-            blocks.append("ライセンス文書が見つかりません。build_portable.batを再実行してください。")
+            blocks.append("License documents were not found. Please run build_portable.bat again." if en else "ライセンス文書が見つかりません。build_portable.batを再実行してください。")
         licenses.insert("1.0", "\n\n".join(blocks))
         licenses.configure(state="disabled")
-        notebook.add(licenses, text="第三者ライセンス")
+        notebook.add(licenses, text="Third-party Licenses" if en else "第三者ライセンス")
 
     def _background_startup_tasks(self):
         if not self._validate_tools():
@@ -814,9 +903,9 @@ class App(tk.Tk):
                                text=True, encoding="utf-8", errors="replace", creationflags=creationflags, timeout=120)
             msg = (r.stdout or "").strip()
             if msg:
-                self.q.put(("log", "[yt-dlp自動更新] " + msg.replace("\n", " | ")))
+                self.q.put(("log", "[yt-dlp auto-update] " + msg.replace("\n", " | ")))
         except Exception as e:
-            self.q.put(("log", f"[yt-dlp自動更新] 確認できませんでした: {e}"))
+            self.q.put(("log", f"[yt-dlp auto-update] Update check failed: {e}"))
 
     def _check_updates(self, manual=False):
         threading.Thread(target=self._check_updates_worker, args=(manual,), daemon=True).start()
@@ -825,7 +914,7 @@ class App(tk.Tk):
         repo = (self.app_cfg.get("github_repo") or "").strip().strip("/")
         if not repo:
             if manual:
-                self.q.put(("update_info", "アプリ本体の更新先はまだ未設定です。\n\nGitHub公開後、app_config.json の github_repo に『owner/repository』を設定すると、起動時に最新版を自動確認できます。"))
+                self.q.put(("update_info", ("The application update source has not been configured yet.\n\nSet github_repo in app_config.json to owner/repository after publishing on GitHub." if self.lang == "en" else "アプリ本体の更新先はまだ未設定です。\n\nGitHub公開後、app_config.json の github_repo に『owner/repository』を設定すると、起動時に最新版を自動確認できます。")))
             return
         url = f"https://api.github.com/repos/{repo}/releases/latest"
         try:
@@ -835,12 +924,75 @@ class App(tk.Tk):
             tag = data.get("tag_name") or ""
             page = data.get("html_url") or f"https://github.com/{repo}/releases"
             if version_tuple(tag) > version_tuple(APP_VERSION):
-                self.q.put(("update_available", (tag, page)))
+                if not manual:
+                    today = time.strftime("%Y-%m-%d")
+                    if tag == self.skipped_update_version:
+                        return
+                    if tag == self.update_later_version and today == self.update_later_date:
+                        return
+                self.q.put(("update_available", (tag, page, manual)))
             elif manual:
-                self.q.put(("update_info", f"現在の v{APP_VERSION} が最新版です。"))
+                self.q.put(("update_info", f"現在の v{APP_VERSION} が最新版です。" if self.lang == "ja" else f"v{APP_VERSION} is the latest version."))
         except Exception as e:
             if manual:
-                self.q.put(("update_info", f"更新情報を確認できませんでした。\n\n{e}"))
+                self.q.put(("update_info", (f"Could not check for updates.\n\n{e}" if self.lang == "en" else f"更新情報を確認できませんでした。\n\n{e}")))
+
+    def _show_update_dialog(self, tag, page, manual=False):
+        dlg = tk.Toplevel(self)
+        dlg.title("新しいバージョンがあります" if self.lang == "ja" else "Update Available")
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        try:
+            p = icon_path()
+            if p.exists():
+                dlg.iconbitmap(default=str(p))
+        except Exception:
+            pass
+
+        frame = ttk.Frame(dlg, padding=18)
+        frame.pack(fill="both", expand=True)
+        if self.lang == "ja":
+            msg = f"新しいバージョン {tag} が公開されています。\n\nどうしますか？"
+            open_text, later_text, skip_text = "更新ページを開く", "あとで", "このバージョンをスキップ"
+        else:
+            msg = f"A new version {tag} is available.\n\nWhat would you like to do?"
+            open_text, later_text, skip_text = "Open update page", "Later", "Skip this version"
+        ttk.Label(frame, text=msg, justify="left").pack(anchor="w", pady=(0, 16))
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill="x")
+
+        def finish(choice):
+            if choice == "open":
+                webbrowser.open(page)
+            elif choice == "later":
+                self.update_later_version = tag
+                self.update_later_date = time.strftime("%Y-%m-%d")
+                self._save_settings()
+            elif choice == "skip":
+                self.skipped_update_version = tag
+                if self.update_later_version == tag:
+                    self.update_later_version = ""
+                    self.update_later_date = ""
+                self._save_settings()
+            try:
+                dlg.grab_release()
+            except Exception:
+                pass
+            dlg.destroy()
+
+        ttk.Button(buttons, text=open_text, command=lambda: finish("open")).pack(side="left")
+        ttk.Button(buttons, text=later_text, command=lambda: finish("later")).pack(side="left", padx=8)
+        ttk.Button(buttons, text=skip_text, command=lambda: finish("skip")).pack(side="left")
+        dlg.protocol("WM_DELETE_WINDOW", lambda: finish("later"))
+        dlg.update_idletasks()
+        try:
+            x = self.winfo_rootx() + max(0, (self.winfo_width() - dlg.winfo_width()) // 2)
+            y = self.winfo_rooty() + max(0, (self.winfo_height() - dlg.winfo_height()) // 2)
+            dlg.geometry(f"+{x}+{y}")
+        except Exception:
+            pass
+        dlg.grab_set()
+        dlg.focus_set()
 
     def _poll_queue(self):
         try:
@@ -862,7 +1014,7 @@ class App(tk.Tk):
                     self.channel_var.set(self._tr("uploader") + (data.get("uploader") or data.get("channel") or "-"))
                     self.duration_var.set(self._tr("duration") + self._duration_text(data.get("duration")))
                     self._fill_formats(formats)
-                    self.status_var.set(f"解析完了：{len(formats)}種類の映像形式")
+                    self.status_var.set(self._tr("analysis_done").format(count=len(formats)))
                     self.analyze_btn.configure(state="normal")
                     self._start_thumbnail(data, serial)
                 elif kind == "analysis_error":
@@ -872,10 +1024,10 @@ class App(tk.Tk):
                     self.video_info = None
                     self.analyze_btn.configure(state="normal")
                     self.download_btn.configure(state="disabled")
-                    self.status_var.set("解析に失敗しました")
-                    self.preview_label.configure(image="", text="プレビューを取得できませんでした。")
-                    self._log("[解析エラー] " + err)
-                    messagebox.showerror("動画情報を取得できません", self._friendly_error(err))
+                    self.status_var.set(self._tr("analysis_failed"))
+                    self.preview_label.configure(image="", text=self._tr("preview_failed"))
+                    self._log("[Analysis error] " + err)
+                    messagebox.showerror("Could not retrieve video information" if self.lang == "en" else "動画情報を取得できません", self._friendly_error(err))
                 elif kind == "thumbnail":
                     serial, path, tmp = value
                     if serial != self.analysis_serial:
@@ -892,12 +1044,12 @@ class App(tk.Tk):
                         self.preview_photo = img
                         self.preview_label.configure(image=img, text="")
                     except Exception as e:
-                        self.preview_label.configure(image="", text=f"プレビュー表示エラー: {e}")
+                        self.preview_label.configure(image="", text=(f"Preview error: {e}" if self.lang == "en" else f"プレビュー表示エラー: {e}"))
                 elif kind == "thumbnail_error":
                     serial, tmp = value
                     shutil.rmtree(tmp, ignore_errors=True)
                     if serial == self.analysis_serial:
-                        self.preview_label.configure(image="", text="サムネイルを表示できませんでした。")
+                        self.preview_label.configure(image="", text=("Could not display thumbnail." if self.lang == "en" else "サムネイルを表示できませんでした。"))
                 elif kind == "done":
                     ok, details = value
                     self.download_btn.configure(state="normal" if self.video_info else "disabled")
@@ -905,21 +1057,21 @@ class App(tk.Tk):
                     if ok:
                         self.progress_var.set(100)
                         self.status_var.set(self._tr("done"))
-                        self._log("--- 完了 ---")
+                        self._log("--- Download complete ---")
                     else:
                         self.status_var.set(self._tr("failed"))
-                        self._log("--- 失敗 ---")
-                        messagebox.showerror("ダウンロード失敗", self._friendly_error(details))
+                        self._log("--- Download failed ---")
+                        messagebox.showerror("Download failed" if self.lang == "en" else "ダウンロード失敗", self._friendly_error(details))
                 elif kind == "update_info":
-                    messagebox.showinfo("更新確認", value)
+                    messagebox.showinfo("Update Check" if self.lang == "en" else "更新確認", value)
                 elif kind == "update_available":
-                    tag, page = value
-                    if messagebox.askyesno("新しいバージョンがあります", f"新しいバージョン {tag} が公開されています。\n\n更新ページを開きますか？"):
-                        webbrowser.open(page)
+                    tag, page, manual = value
+                    self._show_update_dialog(tag, page, manual)
         except queue.Empty:
             pass
         self.after(100, self._poll_queue)
 
 
 if __name__ == "__main__":
+    set_windows_app_id()
     App().mainloop()

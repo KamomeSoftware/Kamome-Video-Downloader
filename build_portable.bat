@@ -1,9 +1,9 @@
-@echo off
+﻿@echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
-title Kamome Video Downloader v0.6.4 - Portable Build
+title Kamome Video Downloader v0.6.5 - Portable Build
 
-set "VERSION=0.6.4"
+set "VERSION=0.6.5"
 set "APPNAME=KamomeVideoDownloader"
 set "PORTABLEDIR=output\KamomeVideoDownloader"
 set "ZIPFILE=output\KamomeVideoDownloader_v%VERSION%_Portable.zip"
@@ -52,7 +52,7 @@ echo [4/7] Building portable application folder...
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 if exist %APPNAME%.spec del /q %APPNAME%.spec
-python -m PyInstaller --noconfirm --clean --onedir --windowed --name %APPNAME% app\main.py
+python -m PyInstaller --noconfirm --clean --onedir --windowed --icon "assets\kamome.ico" --name %APPNAME% app\main.py
 if errorlevel 1 goto :fail
 
 echo.
@@ -65,6 +65,7 @@ if errorlevel 1 goto :fail
 copy /y app_config.json "%PORTABLEDIR%\app_config.json" >nul
 copy /y README.txt "%PORTABLEDIR%\README.txt" >nul
 copy /y README_en.txt "%PORTABLEDIR%\README_en.txt" >nul
+xcopy /e /i /y assets "%PORTABLEDIR%\assets" >nul
 xcopy /e /i /y tools "%PORTABLEDIR%\tools" >nul
 xcopy /e /i /y plugins "%PORTABLEDIR%\plugins" >nul
 xcopy /e /i /y licenses "%PORTABLEDIR%\licenses" >nul
