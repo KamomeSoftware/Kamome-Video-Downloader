@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<XML_DIZ_INFO>
+  <MASTER_PAD_VERSION_INFO>
+    <MASTER_PAD_VERSION>3.11</MASTER_PAD_VERSION>
+    <MASTER_PAD_EDITOR>Hand-authored for Kamome Software</MASTER_PAD_EDITOR>
+    <MASTER_PAD_INFO>Portable Application Description (PAD)</MASTER_PAD_INFO>
+  </MASTER_PAD_VERSION_INFO>
+  <Company_Info>
+    <Company_Name>Kamome Software</Company_Name>
+    <Address_1 />
+    <Address_2 />
+    <City_Town />
+    <State_Province />
+    <Zip_Postal_Code />
+    <Country>Japan</Country>
+    <Company_WebSite_URL>https://github.com/KamomeSoftware/Kamome-Video-Downloader</Company_WebSite_URL>
+    <Contact_Info>
+      <Author_First_Name />
+      <Author_Last_Name />
+      <Author_Email />
+      <Contact_First_Name />
+      <Contact_Last_Name />
+      <Contact_Email />
+    </Contact_Info>
+    <Support_Info>
+      <Sales_Email />
+      <Support_Email />
+      <General_Email />
+      <Sales_Phone />
+      <Support_Phone />
+      <General_Phone />
+      <Fax_Phone />
+    </Support_Info>
+  </Company_Info>
+  <Program_Info>
+    <Program_Name>Kamome Video Downloader</Program_Name>
+    <Program_Version>0.6.5</Program_Version>
+    <Program_Release_Month>09</Program_Release_Month>
+    <Program_Release_Day>10</Program_Release_Day>
+    <Program_Release_Year>2026</Program_Release_Year>
+    <Program_Cost_Dollars>0.00</Program_Cost_Dollars>
+    <Program_Cost_Other_Code />
+    <Program_Cost_Other />
+    <Program_Type>Freeware</Program_Type>
+    <Program_Release_Status>Minor Update</Program_Release_Status>
+    <Program_Install_Support>No Install Support</Program_Install_Support>
+    <Program_OS_Support>Win10,Win11</Program_OS_Support>
+    <Program_Language>English,Japanese</Program_Language>
+    <File_Info>
+      <File_Size_Bytes />
+      <File_Size_K />
+      <File_Size_MB>99.5</File_Size_MB>
+    </File_Info>
+    <Expire_Info>
+      <Has_Expire_Info>N</Has_Expire_Info>
+      <Expire_Count />
+      <Expire_Based_On />
+      <Expire_Other_Info />
+      <Expire_Month />
+      <Expire_Day />
+      <Expire_Year />
+    </Expire_Info>
+    <Program_Change_Info>Improved English localization, new update notification options, new application icon, English log output, and window state restoration.</Program_Change_Info>
+    <Program_Category_Class>Network &amp; Internet::Download Managers</Program_Category_Class>
+    <Program_Specific_Category>Video Downloader</Program_Specific_Category>
+    <Program_System_Requirements>Windows 10 or Windows 11</Program_System_Requirements>
+  </Program_Info>
+  <Program_Descriptions>
+    <English>
+      <Keywords>video downloader,yt-dlp,GUI,Windows,MP4,thumbnail,metadata,portable</Keywords>
+      <Char_Desc_45>Simple Windows GUI for yt-dlp</Char_Desc_45>
+      <Char_Desc_80>Portable Windows GUI for yt-dlp with format selection and MP4 metadata.</Char_Desc_80>
+      <Char_Desc_250>Kamome Video Downloader is a portable Windows GUI for yt-dlp. Analyze a video URL, preview the video, choose resolution, FPS, codec and container, download it, embed the original thumbnail, and save source metadata in MP4 files.</Char_Desc_250>
+      <Char_Desc_450>Kamome Video Downloader is a simple portable Windows GUI for yt-dlp. Paste a video URL to analyze available formats, preview the thumbnail and video information, then select resolution, FPS, codec and container before downloading. It can embed the original thumbnail into MP4 files and save the source URL and other metadata. Browser-cookie support and Japanese/English interfaces are included.</Char_Desc_450>
+      <Char_Desc_2000>Kamome Video Downloader is a free portable Windows GUI for yt-dlp, designed for users who want the flexibility of yt-dlp without working from the command line. Paste a video URL and the app automatically analyzes the available video formats. It displays a preview, title, uploader and duration, and lets you choose the exact resolution, FPS, codec, container and estimated file size. The application can embed the original video thumbnail directly into downloaded MP4 files and save the source video URL and other metadata inside the MP4. Browser-cookie support is available for sites that require a signed-in browser session. The interface supports both English and Japanese. Kamome Video Downloader is distributed as a portable ZIP, requires no installer, contains no ads or bundled promotional software, and uses yt-dlp and FFmpeg as its download and media-processing engines.</Char_Desc_2000>
+    </English>
+  </Program_Descriptions>
+  <Web_Info>
+    <Application_URLs>
+      <Application_Info_URL>https://github.com/KamomeSoftware/Kamome-Video-Downloader</Application_Info_URL>
+      <Application_Order_URL />
+      <Application_Screenshot_URL />
+      <Application_Icon_URL>https://raw.githubusercontent.com/KamomeSoftware/Kamome-Video-Downloader/main/assets/kamome.png</Application_Icon_URL>
+      <Application_XML_File_URL>https://raw.githubusercontent.com/KamomeSoftware/Kamome-Video-Downloader/main/pad/KamomeVideoDownloader.xml</Application_XML_File_URL>
+    </Application_URLs>
+    <Download_URLs>
+      <Primary_Download_URL>https://github.com/KamomeSoftware/Kamome-Video-Downloader/releases/download/v0.6.5/KamomeVideoDownloader_v0.6.5_Portable.zip</Primary_Download_URL>
+      <Secondary_Download_URL />
+      <Additional_Download_URL_1 />
+      <Additional_Download_URL_2 />
+    </Download_URLs>
+  </Web_Info>
+  <Permissions>
+    <Distribution_Permissions>Permission is granted to list Kamome Video Downloader and link to the official download URL. The distributed package must not be modified. Mirroring or redistribution of the package requires permission from Kamome Software.</Distribution_Permissions>
+    <EULA>Freeware. Use of this software is subject to the Terms and Licenses included with the application.</EULA>
+  </Permissions>
+</XML_DIZ_INFO>
