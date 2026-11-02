@@ -1,9 +1,9 @@
 ﻿@echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
-title Kamome Video Downloader v0.6.5 - Portable Build
+title Kamome Video Downloader v0.6.6 - Portable Build
 
-set "VERSION=0.6.5"
+set "VERSION=0.6.6"
 set "APPNAME=KamomeVideoDownloader"
 set "PORTABLEDIR=output\KamomeVideoDownloader"
 set "ZIPFILE=output\KamomeVideoDownloader_v%VERSION%_Portable.zip"
@@ -63,6 +63,7 @@ mkdir "%PORTABLEDIR%"
 xcopy /e /i /y "dist\%APPNAME%\*" "%PORTABLEDIR%\" >nul
 if errorlevel 1 goto :fail
 copy /y app_config.json "%PORTABLEDIR%\app_config.json" >nul
+copy /y CHANGELOG_0.6.6.txt "%PORTABLEDIR%\CHANGELOG_0.6.6.txt" >nul
 copy /y README.txt "%PORTABLEDIR%\README.txt" >nul
 copy /y README_en.txt "%PORTABLEDIR%\README_en.txt" >nul
 xcopy /e /i /y assets "%PORTABLEDIR%\assets" >nul

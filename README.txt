@@ -1,4 +1,6 @@
-Kamome Video Downloader v0.6.5 Portable
+0.6.6 追加機能: ダウンロードキュー / 投稿URL由来のファイル名。詳しくは CHANGELOG_0.6.6.txt を参照。
+
+Kamome Video Downloader v0.6.6 Portable
 Developer: Kamome Software
 
 Windows向けのシンプルな yt-dlp GUI です。
@@ -38,7 +40,7 @@ yt-dlpが対応するサイトで利用できますが、各サイトの仕様�
 ダウンロードが許可されているコンテンツ、または利用者自身が権利を有するコンテンツに使用してください。
 各サービスの利用規約、著作権その他の法令を守って使用してください。
 
-v0.6.5 Portable の変更
+v0.6.6 Portable の変更
 ・アプリ側のログメッセージをすべて英語に統一
 ----------------------
 ・更新通知に「更新ページを開く」「あとで」「このバージョンをスキップ」を追加。
@@ -56,6 +58,6 @@ yt-dlpとFFmpegを準備し、PyInstaller --onedir でポータブルフォル�
 
 完成物:
 output\KamomeVideoDownloader\
-output\KamomeVideoDownloader_v0.6.5_Portable.zip
+output\KamomeVideoDownloader_v0.6.6_Portable.zip
 
 一般利用者のPCにはPython、PyInstaller、Inno Setupは不要です。

@@ -1,4 +1,6 @@
-Kamome Video Downloader v0.6.5 Portable
+0.6.6: Sequential download queue; stable URL/video identifiers in filenames. Paste a URL, optionally select a format after analysis, then click Add to queue / Download. Unanalyzed URLs use best quality. Settings are captured per job. Cancel stops the current job and continues to the next. Queue is retained for this session only. Double-click a job for details. Existing filenames are skipped, never overwritten.
+
+Kamome Video Downloader v0.6.6 Portable
 Developer: Kamome Software
 
 A simple Windows GUI for yt-dlp.
@@ -35,7 +37,7 @@ This application is an independent GUI front-end and is not affiliated with or e
 It can work with sites supported by yt-dlp, but site changes can temporarily break compatibility.
 Use it only for content you are authorized to download and follow each service's terms and applicable law.
 
-Changes in v0.6.5 Portable
+Changes in v0.6.6 Portable
 - Application-added log messages are now always in English.
 --------------------------
 - Restores the previous window state on the next launch.
@@ -53,12 +55,12 @@ The script prepares yt-dlp and FFmpeg and builds a portable folder with PyInstal
 
 Outputs:
 output\KamomeVideoDownloader\
-output\KamomeVideoDownloader_v0.6.5_Portable.zip
+output\KamomeVideoDownloader_v0.6.6_Portable.zip
 
 End users do not need Python, PyInstaller, or Inno Setup.
 
 
-v0.6.5 changes
+v0.6.6 changes
 ---------------
 - Added Open update page / Later / Skip this version choices.
 - Later suppresses the same update for the rest of the day.

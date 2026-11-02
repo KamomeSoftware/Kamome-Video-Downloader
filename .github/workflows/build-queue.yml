@@ -1,0 +1,41 @@
+name: Build Windows 0.6.6
+on:
+  push:
+    branches: ['codex/queue-v0.6.6']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          architecture: x64
+      - name: Prepare Python build tools
+        run: python -m pip install pyinstaller yt-dlp
+      - name: Prepare download engines
+        shell: pwsh
+        run: ./setup_tools.ps1
+      - name: Test queue, naming, and Windows UI
+        run: python -m unittest discover -s tests -v
+      - name: Build executable
+        run: python -m PyInstaller --noconfirm --clean --onedir --windowed --icon assets/kamome.ico --name KamomeVideoDownloader app/main.py
+      - name: Package portable application
+        shell: pwsh
+        run: |
+          $dest = 'dist/KamomeVideoDownloader'
+          Copy-Item app_config.json,README.txt,README_en.txt,CHANGELOG_0.6.6.txt -Destination $dest
+          Copy-Item assets,tools,plugins,licenses -Destination $dest -Recurse
+          New-Item -ItemType Directory -Force output | Out-Null
+          Compress-Archive -Path $dest -DestinationPath output/KamomeVideoDownloader_v0.6.6_Portable.zip
+          git archive --format=zip --output=output/KamomeVideoDownloader_v0.6.6_Source.zip HEAD
+          Get-FileHash output/*.zip | Format-Table -AutoSize
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KamomeVideoDownloader_v0.6.6
+          path: output/*.zip
+          retention-days: 30

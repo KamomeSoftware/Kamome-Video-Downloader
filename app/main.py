@@ -11,13 +11,16 @@ import time
 import urllib.request
 import webbrowser
 import locale
+from urllib.parse import urlsplit, unquote
+from dataclasses import dataclass, field
+import hashlib
 from pathlib import Path
 from urllib.error import URLError, HTTPError
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 APP_NAME = "Kamome Video Downloader"
-APP_VERSION = "0.6.5"
+APP_VERSION = "0.6.6"
 APP_USER_MODEL_ID = "KamomeSoftware.KamomeVideoDownloader"
 
 
@@ -161,6 +164,34 @@ def sanitize_windows_filename(name):
     return name
 
 
+def output_stem(info, url):
+    """Stable name independent of the destination's existing files."""
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    last = unquote(parts.path.rstrip("/").rsplit("/", 1)[-1])
+    instagram = host == "instagram.com" or host.endswith(".instagram.com")
+    identifier = (last if instagram else str(info.get("id") or last))
+    if not identifier:
+        identifier = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+    identifier = sanitize_windows_filename(identifier)[:80]
+    title = sanitize_windows_filename(info.get("title") or info.get("uploader") or "video")[:140].rstrip(" .")
+    return f"{title}_{identifier}"
+
+
+@dataclass
+class DownloadJob:
+    key: str
+    url: str
+    destination: str
+    title: str
+    filename: str
+    command: tuple
+    quality: str
+    state: str = "waiting"
+    details: str = ""
+    cancel: threading.Event = field(default_factory=threading.Event)
+
+
 def version_tuple(s):
     nums = re.findall(r"\d+", s or "")
     return tuple(int(x) for x in nums[:4]) if nums else (0,)
@@ -173,6 +204,12 @@ class App(tk.Tk):
         self.geometry("980x860")
         self.minsize(860, 720)
         self.proc = None
+        self.proc_lock = threading.Lock()
+        self.jobs = []
+        self.active_job = None
+        self.job_serial = 0
+        self.closing = False
+        self.analyzed_url = None
         self.q = queue.Queue()
         self.url_var = tk.StringVar()
         self.dest_var = tk.StringVar(value=str(Path.home() / "Downloads"))
@@ -335,6 +372,11 @@ class App(tk.Tk):
             pass
 
     def _on_close(self):
+        if self.active_job or any(j.state == "waiting" for j in self.jobs):
+            if not messagebox.askyesno(APP_NAME, "実行中・待機中の処理を中止して終了しますか？" if self.lang == "ja" else "Cancel active and waiting downloads and exit?"):
+                return
+        self.closing = True
+        self._cancel()
         self._save_settings()
         if self.preview_tmp:
             shutil.rmtree(self.preview_tmp, ignore_errors=True)
@@ -399,7 +441,7 @@ class App(tk.Tk):
         fmtframe = ttk.LabelFrame(main, text=self._tr("formats"))
         fmtframe.pack(fill="both", expand=True, padx=14, pady=8)
         cols = ("resolution", "fps", "codec", "container", "size", "format_id")
-        self.format_tree = ttk.Treeview(fmtframe, columns=cols, show="headings", height=10, selectmode="browse")
+        self.format_tree = ttk.Treeview(fmtframe, columns=cols, show="headings", height=5, selectmode="browse")
         headings = {
             "resolution": self._tr("resolution"),
             "fps": "FPS",
@@ -441,17 +483,39 @@ class App(tk.Tk):
         btnrow.pack(fill="x", padx=14, pady=10)
         style = ttk.Style(self)
         style.configure("Download.TButton", font=("Yu Gothic UI", 10, "bold"), padding=(16, 7))
-        self.download_btn = ttk.Button(btnrow, text=self._tr("download"), command=self._start, state="disabled", style="Download.TButton")
+        self.download_btn = ttk.Button(btnrow, text=("キューに追加・順次保存" if self.lang == "ja" else "Add to queue / Download"), command=self._start, state="normal", style="Download.TButton")
         self.download_btn.pack(side="left")
         self.cancel_btn = ttk.Button(btnrow, text=self._tr("cancel"), command=self._cancel, state="disabled")
         self.cancel_btn.pack(side="left", padx=(8, 0))
+
+        queueframe = ttk.LabelFrame(main, text="ダウンロードキュー（1本ずつ保存）" if self.lang == "ja" else "Download queue (one at a time)")
+        queueframe.pack(fill="x", padx=14, pady=(0, 8))
+        qcols = ("state", "title", "quality", "destination")
+        self.job_tree = ttk.Treeview(queueframe, columns=qcols, show="headings", height=4, selectmode="browse")
+        for col, label, width in zip(qcols,
+                (["状態", "タイトル / URL", "画質", "保存先"] if self.lang == "ja" else ["Status", "Title / URL", "Quality", "Destination"]),
+                [110, 350, 100, 260]):
+            self.job_tree.heading(col, text=label)
+            self.job_tree.column(col, width=width, minwidth=65)
+        qscroll = ttk.Scrollbar(queueframe, orient="vertical", command=self.job_tree.yview)
+        self.job_tree.configure(yscrollcommand=qscroll.set)
+        qscroll.pack(side="right", fill="y")
+        self.job_tree.pack(fill="x", padx=6, pady=4)
+        qbuttons = ttk.Frame(queueframe)
+        qbuttons.pack(fill="x", padx=6, pady=(0, 4))
+        for ja, en, fn in [("待機項目を削除", "Remove waiting", self._remove_job),
+                           ("↑ 上へ", "Move up", lambda: self._move_job(-1)),
+                           ("↓ 下へ", "Move down", lambda: self._move_job(1)),
+                           ("終了項目を消去", "Clear finished", self._clear_finished)]:
+            ttk.Button(qbuttons, text=ja if self.lang == "ja" else en, command=fn).pack(side="left", padx=(0, 6))
+        self.job_tree.bind("<Double-1>", self._job_details)
 
         ttk.Progressbar(main, variable=self.progress_var, maximum=100).pack(fill="x", padx=14, pady=(0, 5))
         ttk.Label(main, textvariable=self.status_var).pack(anchor="w", padx=14, pady=(0, 6))
 
         logframe = ttk.LabelFrame(main, text=self._tr("log"))
         logframe.pack(fill="both", expand=False, padx=14, pady=(0, 14))
-        self.log = tk.Text(logframe, height=8, wrap="word")
+        self.log = tk.Text(logframe, height=4, wrap="word")
         self.log.pack(fill="both", expand=True, padx=8, pady=8)
         self.log.configure(state="disabled")
 
@@ -483,6 +547,12 @@ class App(tk.Tk):
             self._schedule_analysis(100)
 
     def _on_url_changed(self, *_):
+        # Invalidate at edit time, including while an older request is running.
+        self.analysis_serial += 1
+        self.analyzed_url = None
+        self.video_info = None
+        self._clear_formats()
+        self.analyze_btn.configure(state="normal")
         self._schedule_analysis(700)
 
     def _schedule_analysis(self, delay):
@@ -503,12 +573,14 @@ class App(tk.Tk):
         self.analysis_serial += 1
         serial = self.analysis_serial
         self.analyze_btn.configure(state="disabled")
-        self.download_btn.configure(state="disabled")
-        self.status_var.set(self._tr("analyzing"))
+        self.video_info = None
+        self.analyzed_url = None
+        if not self.active_job:
+            self.status_var.set(self._tr("analyzing"))
         self.preview_label.configure(image="", text=self._tr("thumb_wait"))
         self.preview_photo = None
         self._clear_formats()
-        threading.Thread(target=self._analyze_worker, args=(url, serial), daemon=True).start()
+        threading.Thread(target=self._analyze_worker, args=(url, serial, tuple(self._common_ytdlp_args())), daemon=True).start()
 
     def _cookie_args(self):
         selected = self.cookie_var.get()
@@ -524,12 +596,12 @@ class App(tk.Tk):
         args += self._cookie_args()
         return args
 
-    def _analyze_worker(self, url, serial):
-        cmd = self._common_ytdlp_args() + ["--dump-single-json", "--skip-download", url]
+    def _analyze_worker(self, url, serial, common):
+        cmd = list(common) + ["--dump-single-json", "--skip-download", url]
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         try:
             r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                               encoding="utf-8", errors="replace", creationflags=creationflags)
+                               encoding="utf-8", errors="replace", creationflags=creationflags, timeout=120)
             if r.returncode != 0:
                 err = (r.stderr or r.stdout or self._tr("analysis_failed")).strip()
                 self.q.put(("analysis_error", (serial, err)))
@@ -541,6 +613,8 @@ class App(tk.Tk):
             self.q.put(("analysis_error", (serial, str(e))))
 
     def _prepare_formats(self, data):
+        if data.get("entries"):
+            data = next((entry for entry in data["entries"] if entry and entry.get("formats")), data)
         duration = data.get("duration") or 0
         formats = data.get("formats") or []
         audio_sizes = []
@@ -704,106 +778,205 @@ class App(tk.Tk):
     def _start(self):
         url = self.url_var.get().strip()
         dest = self.dest_var.get().strip()
-        fmt = self._selected_format()
-        if not url:
-            messagebox.showwarning("URL", "Please paste a video URL." if self.lang == "en" else "動画URLを貼り付けてください。")
+        if not url.startswith(("https://", "http://")):
+            messagebox.showwarning("URL", "動画URLを貼り付けてください。" if self.lang == "ja" else "Paste a video URL.")
             return
-        if not fmt:
-            messagebox.showwarning("Video format" if self.lang == "en" else "映像形式", "Please select a video format from the list." if self.lang == "en" else "一覧からダウンロードする映像形式を選択してください。")
+        if not dest or not self._validate_tools():
             return
-        if not dest:
-            messagebox.showwarning("Destination" if self.lang == "en" else "保存先", "Please select a destination folder." if self.lang == "en" else "保存先を選んでください。")
+        try:
+            Path(dest).mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            messagebox.showerror(APP_NAME, str(exc))
             return
-        if not self._validate_tools():
+        info = self.video_info if self.analyzed_url == url else None
+        fmt = self._selected_format() if info else None
+        # An unanalyzed URL can be queued immediately; yt-dlp analyzes it on its turn.
+        # Never reuse a different video's selected format or title.
+        if any(j.url == url and j.destination == dest and j.state in ("waiting", "running") for j in self.jobs):
+            messagebox.showinfo(APP_NAME, "同じURLはすでにキューにあります。" if self.lang == "ja" else "This URL is already queued.")
             return
-        if not self.video_info:
-            messagebox.showwarning("Analysis" if self.lang == "en" else "解析", "Please analyze the video before downloading." if self.lang == "en" else "動画情報を解析してからダウンロードしてください。")
-            return
-        Path(dest).mkdir(parents=True, exist_ok=True)
+        filename = output_stem(info, url) if info else None
+        template = filename.replace("%", "%%") + "%(playlist_index&_{:02d}|)s.%(ext)s" if filename else self._pending_template(url)
+        quality = f"{fmt['height']}p / {fmt['codec']}" if fmt else ("自動（最高画質）" if self.lang == "ja" else "Auto (best)")
+        command = tuple(self._download_command(url, dest, None if (info or {}).get("entries") else fmt, template, self.thumb_var.get()))
+        self.job_serial += 1
+        job = DownloadJob(str(self.job_serial), url, dest, (info or {}).get("title") or url,
+                          filename or "", command, quality)
+        self.jobs.append(job)
+        self._refresh_jobs()
         self._save_settings()
+        self._start_next_job()
 
-        title = sanitize_windows_filename(self.video_info.get("title") or "video")
-        final_path = Path(dest) / f"{title}.mp4"
-        overwrite = False
-        if final_path.exists():
-            ans = messagebox.askyesno("File already exists" if self.lang == "en" else "同名ファイルがあります", (f"A file with the same name already exists.\n\n{final_path.name}\n\nOverwrite it?" if self.lang == "en" else f"同名のファイルがすでに存在します。\n\n{final_path.name}\n\n上書きしますか？"))
-            if not ans:
-                return
-            overwrite = True
+    def _pending_template(self, url):
+        # The source URL's final path component is stable, even before analysis.
+        host = (urlsplit(url).hostname or "").lower()
+        if host == "instagram.com" or host.endswith(".instagram.com"):
+            code = sanitize_windows_filename(unquote(urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1]))[:80]
+            return "%(title).140s_" + code.replace("%", "%%") + "%(playlist_index&_{:02d}|)s.%(ext)s"
+        return "%(title).140s_%(id)s%(playlist_index&_{:02d}|)s.%(ext)s"
 
-        self.progress_var.set(0)
-        self.download_btn.configure(state="disabled")
-        self.cancel_btn.configure(state="normal")
-        self.status_var.set(self._tr("starting"))
-        self._log(f"--- Download started: {fmt['height']}p / {fmt['codec']} / format {fmt['format_id']} ---")
-        threading.Thread(target=self._worker, args=(url, dest, fmt, overwrite), daemon=True).start()
-
-    def _worker(self, url, dest, fmt, overwrite):
-        # Exact selected video format. If it is video-only, pair it with best audio.
-        if fmt.get("acodec") not in (None, "none"):
+    def _download_command(self, url, dest, fmt, template, thumbnail):
+        if fmt and fmt.get("acodec") not in (None, "none"):
             selector = fmt["format_id"]
-        else:
+        elif fmt:
             selector = f"{fmt['format_id']}+bestaudio/best"
-        cmd = self._common_ytdlp_args() + [
-            "--newline", "--paths", dest,
-            "-o", "%(title)s.%(ext)s",
-            "-f", selector,
-            "--merge-output-format", "mp4",
-            "--remux-video", "mp4",
-            "--windows-filenames",
-        ]
-        if overwrite:
-            cmd += ["--force-overwrites"]
         else:
-            cmd += ["--no-overwrites"]
-        # Preserve source information inside the MP4. yt-dlp/FFmpeg write standard metadata
-        # including title/date; the explicit mappings keep uploader and source URL accessible.
-        cmd += [
-            "--embed-metadata",
-            "--parse-metadata", "%(uploader)s:%(meta_artist)s",
+            selector = "bestvideo+bestaudio/best"
+        cmd = self._common_ytdlp_args() + [
+            "--newline", "--paths", dest, "-o", template, "-f", selector,
+            "--merge-output-format", "mp4", "--remux-video", "mp4", "--windows-filenames",
+            "--no-overwrites", "--concurrent-fragments", "1",
+            "--socket-timeout", "30", "--retries", "3", "--fragment-retries", "3",
+            "--embed-metadata", "--parse-metadata", "%(uploader)s:%(meta_artist)s",
             "--parse-metadata", "%(webpage_url)s:%(meta_comment)s",
         ]
-        if self.thumb_var.get():
-            # Keep a standalone thumbnail image as well as embedding it into the MP4.
-            # Kamome does not delete or suppress the thumbnail file.
-            # JPEG conversion improves MP4 cover-art compatibility.
+        if thumbnail:
             cmd += ["--write-thumbnail", "--convert-thumbnails", "jpg", "--embed-thumbnail"]
-        cmd.append(url)
-        creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        return cmd + [url]
+
+    def _refresh_jobs(self):
+        selected = self.job_tree.selection()
+        for job in self.jobs:
+            labels = {"waiting": ("待機中", "Waiting"), "running": ("保存中", "Downloading"),
+                      "done": ("完了 / 保存済み", "Complete / existing"), "failed": ("失敗", "Failed"),
+                      "cancelled": ("中止", "Cancelled")}
+            values = (labels[job.state][self.lang != "ja"], job.title, job.quality, job.destination)
+            if self.job_tree.exists(job.key):
+                self.job_tree.item(job.key, values=values)
+            else:
+                self.job_tree.insert("", "end", iid=job.key, values=values)
+        keys = {j.key for j in self.jobs}
+        for key in self.job_tree.get_children():
+            if key not in keys:
+                self.job_tree.delete(key)
+        for index, job in enumerate(self.jobs):
+            self.job_tree.move(job.key, "", index)
+        if selected and selected[0] in keys:
+            self.job_tree.selection_set(selected)
+
+    def _selected_job(self):
+        selected = self.job_tree.selection()
+        return next((j for j in self.jobs if selected and j.key == selected[0]), None)
+
+    def _remove_job(self):
+        job = self._selected_job()
+        if job and job.state == "waiting":
+            self.jobs.remove(job)
+            self._refresh_jobs()
+
+    def _move_job(self, delta):
+        job = self._selected_job()
+        waiting = [j for j in self.jobs if j.state == "waiting"]
+        if job not in waiting:
+            return
+        index = waiting.index(job) + delta
+        if 0 <= index < len(waiting):
+            other = waiting[index]
+            a, b = self.jobs.index(job), self.jobs.index(other)
+            self.jobs[a], self.jobs[b] = self.jobs[b], self.jobs[a]
+            self._refresh_jobs()
+
+    def _clear_finished(self):
+        self.jobs[:] = [j for j in self.jobs if j.state in ("waiting", "running")]
+        self._refresh_jobs()
+
+    def _job_details(self, event=None):
+        job = self._selected_job()
+        if job:
+            messagebox.showinfo(APP_NAME, f"{job.title}\n{job.url}\n{job.destination}\n{job.filename}\n\n{job.details}")
+
+    def _start_next_job(self):
+        # Only the UI thread schedules workers. Set the guard before starting a thread.
+        if self.closing or self.active_job is not None:
+            return
+        job = next((j for j in self.jobs if j.state == "waiting"), None)
+        if job is None:
+            self.cancel_btn.configure(state="disabled")
+            return
+        self.active_job = job
+        job.state = "running"
+        self._refresh_jobs()
+        self.progress_var.set(0)
+        self.status_var.set(self._tr("starting"))
+        self.cancel_btn.configure(state="normal")
+        self._log(f"--- {job.title}: {job.quality} ---")
+        threading.Thread(target=self._worker, args=(job,), daemon=True).start()
+
+    @staticmethod
+    def _terminate_process(proc):
+        if proc.poll() is not None:
+            return
         try:
-            self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                         encoding="utf-8", errors="replace", creationflags=creationflags)
-            last_lines = []
-            for line in self.proc.stdout:
-                line = line.rstrip()
-                last_lines.append(line)
-                last_lines = last_lines[-30:]
-                self.q.put(("log", line))
-                if "[download]" in line and "%" in line:
-                    m = re.search(r"([0-9]+(?:\.[0-9]+)?)%", line)
-                    if m:
-                        self.q.put(("progress", float(m.group(1))))
-                low = line.lower()
-                if "merging formats" in low or "merger" in low:
-                    self.q.put(("status", self._tr("merging")))
-                elif "embedding thumbnail" in low:
-                    self.q.put(("status", self._tr("embedding")))
-                elif "remuxing video" in low:
-                    self.q.put(("status", self._tr("remux")))
-            ok = self.proc.wait() == 0
-            self.q.put(("done", (ok, "\n".join(last_lines))))
-        except Exception as e:
-            self.q.put(("done", (False, str(e))))
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               creationflags=subprocess.CREATE_NO_WINDOW, timeout=10)
+            else:
+                proc.terminate()
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        if proc.poll() is None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+
+    def _worker(self, job):
+        # Worker reads only the immutable command snapshot; it never reads Tk variables.
+        proc = None
+        details = ""
+        ok = False
+        try:
+            if not job.cancel.is_set():
+                proc = subprocess.Popen(job.command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                    encoding="utf-8", errors="replace",
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+                with self.proc_lock:
+                    self.proc = proc
+                if job.cancel.is_set():
+                    self._terminate_process(proc)
+                last_lines = []
+                for line in proc.stdout:
+                    line = line.rstrip()
+                    last_lines.append(line)
+                    last_lines = last_lines[-30:]
+                    self.q.put(("log", line))
+                    if "[download]" in line and "%" in line:
+                        match = re.search(r"([0-9]+(?:\.[0-9]+)?)%", line)
+                        if match:
+                            self.q.put(("progress", float(match.group(1))))
+                    low = line.lower()
+                    for token, key in [("merger", "merging"), ("embedding thumbnail", "embedding"), ("remux", "remux")]:
+                        if token in low:
+                            self.q.put(("status", self._tr(key)))
+                            break
+                ok = proc.wait() == 0
+                details = "\n".join(last_lines)
+        except Exception as exc:
+            details = str(exc)
         finally:
-            self.proc = None
+            if proc is not None:
+                if proc.poll() is None:
+                    self._terminate_process(proc)
+                proc.wait()
+                if proc.stdout:
+                    proc.stdout.close()
+            with self.proc_lock:
+                self.proc = None
+            self.q.put(("done", (job.key, ok, details)))
 
     def _cancel(self):
-        if self.proc and self.proc.poll() is None:
-            try:
-                self.proc.terminate()
-                self.status_var.set(self._tr("cancelled"))
-            except Exception:
-                pass
+        job = self.active_job
+        if job is None:
+            return
+        job.cancel.set()
+        self.cancel_btn.configure(state="disabled")
+        # Process may still be starting. The worker checks the event after Popen too.
+        with self.proc_lock:
+            proc = self.proc
+        if proc is not None:
+            threading.Thread(target=self._terminate_process, args=(proc,), daemon=True).start()
+        self.status_var.set(self._tr("cancelled"))
 
     def _friendly_error(self, text):
         t = text or ""
@@ -893,6 +1066,8 @@ class App(tk.Tk):
             threading.Thread(target=self._check_updates_worker, args=(False,), daemon=True).start()
 
     def _update_ytdlp_worker(self):
+        if self.active_job or self.closing:
+            return
         stamp = config_dir() / "engine_update_check.txt"
         try:
             if stamp.exists() and time.time() - stamp.stat().st_mtime < 24 * 3600:
@@ -1010,11 +1185,13 @@ class App(tk.Tk):
                     if serial != self.analysis_serial:
                         continue
                     self.video_info = data
+                    self.analyzed_url = self.url_var.get().strip()
                     self.title_var.set(self._tr("title") + (data.get("title") or "-"))
                     self.channel_var.set(self._tr("uploader") + (data.get("uploader") or data.get("channel") or "-"))
                     self.duration_var.set(self._tr("duration") + self._duration_text(data.get("duration")))
                     self._fill_formats(formats)
-                    self.status_var.set(self._tr("analysis_done").format(count=len(formats)))
+                    if not self.active_job:
+                        self.status_var.set(self._tr("analysis_done").format(count=len(formats)))
                     self.analyze_btn.configure(state="normal")
                     self._start_thumbnail(data, serial)
                 elif kind == "analysis_error":
@@ -1023,8 +1200,9 @@ class App(tk.Tk):
                         continue
                     self.video_info = None
                     self.analyze_btn.configure(state="normal")
-                    self.download_btn.configure(state="disabled")
-                    self.status_var.set(self._tr("analysis_failed"))
+                    self.download_btn.configure(state="normal")
+                    if not self.active_job:
+                        self.status_var.set(self._tr("analysis_failed"))
                     self.preview_label.configure(image="", text=self._tr("preview_failed"))
                     self._log("[Analysis error] " + err)
                     messagebox.showerror("Could not retrieve video information" if self.lang == "en" else "動画情報を取得できません", self._friendly_error(err))
@@ -1051,17 +1229,19 @@ class App(tk.Tk):
                     if serial == self.analysis_serial:
                         self.preview_label.configure(image="", text=("Could not display thumbnail." if self.lang == "en" else "サムネイルを表示できませんでした。"))
                 elif kind == "done":
-                    ok, details = value
-                    self.download_btn.configure(state="normal" if self.video_info else "disabled")
-                    self.cancel_btn.configure(state="disabled")
-                    if ok:
-                        self.progress_var.set(100)
-                        self.status_var.set(self._tr("done"))
-                        self._log("--- Download complete ---")
-                    else:
-                        self.status_var.set(self._tr("failed"))
-                        self._log("--- Download failed ---")
-                        messagebox.showerror("Download failed" if self.lang == "en" else "ダウンロード失敗", self._friendly_error(details))
+                    key, ok, details = value
+                    job = self.active_job
+                    if job is None or job.key != key:
+                        continue
+                    job.details = details
+                    job.state = "cancelled" if job.cancel.is_set() else ("done" if ok else "failed")
+                    self.active_job = None
+                    self._refresh_jobs()
+                    self.progress_var.set(100 if job.state == "done" else 0)
+                    self.status_var.set(self._tr({"done": "done", "failed": "failed", "cancelled": "cancelled"}[job.state]))
+                    self._log(f"--- {job.title}: {job.state} ---")
+                    # Failures stay in the list/log; no modal dialog blocks the next job.
+                    self._start_next_job()
                 elif kind == "update_info":
                     messagebox.showinfo("Update Check" if self.lang == "en" else "更新確認", value)
                 elif kind == "update_available":
