@@ -136,7 +136,7 @@ class WindowsUI(unittest.TestCase):
             a=main.App()
             try:
                 a.update(); self.assertEqual(a.title(),main.APP_NAME+' v0.6.6')
-                self.assertEqual(a.download_btn['state'],'normal')
+                self.assertEqual(str(a.download_btn['state']),'normal')
                 self.assertEqual(len(a.job_tree['columns']),4)
                 self.assertTrue(a.job_tree.winfo_ismapped())
             finally: a.destroy()
