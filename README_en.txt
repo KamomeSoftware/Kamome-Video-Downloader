@@ -25,7 +25,7 @@ Features
 - Firefox / Chrome / Edge cookie support
 - Japanese / English UI; first launch follows the Windows language
 - Daily yt-dlp update check
-- Kamome application update check via GitHub Releases
+- Kamome application update check via the official website
 - Ko-fi Support Development link
 
 Official

@@ -21,6 +21,8 @@ from tkinter import ttk, filedialog, messagebox
 
 APP_NAME = "Kamome Video Downloader"
 APP_VERSION = "0.6.6"
+OFFICIAL_DOWNLOAD_PAGE = "https://kamomecompany.com/software/video-downloader/"
+UPDATE_URL = OFFICIAL_DOWNLOAD_PAGE + "update.json"
 APP_USER_MODEL_ID = "KamomeSoftware.KamomeVideoDownloader"
 
 
@@ -235,6 +237,8 @@ class App(tk.Tk):
         self.update_later_version = ""
         self.update_later_date = ""
         self.app_cfg = self._load_app_config()
+        self.auto_check_updates = tk.BooleanVar(value=self.app_cfg.get("auto_check_updates", True))
+        self.update_check_running = False
         self._load_settings()
         # The saved language can differ from the Windows locale used above.
         # Refresh language-dependent state after settings are loaded.
@@ -249,7 +253,7 @@ class App(tk.Tk):
         self.after(800, self._background_startup_tasks)
 
     def _load_app_config(self):
-        defaults = {"support_url": "", "github_repo": "", "auto_check_updates": True}
+        defaults = {"support_url": "", "auto_check_updates": True}
         try:
             if app_config_path().exists():
                 data = json.loads(app_config_path().read_text(encoding="utf-8"))
@@ -262,6 +266,8 @@ class App(tk.Tk):
         p = config_path()
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(data.get("auto_check_updates"), bool):
+                self.auto_check_updates.set(data["auto_check_updates"])
             d = data.get("destination")
             if d:
                 self.dest_var.set(d)
@@ -364,6 +370,7 @@ class App(tk.Tk):
                 "language": self.lang,
                 "window_state": state,
                 "window_geometry": geometry,
+                "auto_check_updates": self.auto_check_updates.get(),
                 "skipped_update_version": self.skipped_update_version,
                 "update_later_version": self.update_later_version,
                 "update_later_date": self.update_later_date,
@@ -403,7 +410,14 @@ class App(tk.Tk):
         ttk.Label(topbar, text=f"{APP_NAME}  v{APP_VERSION}", font=("Segoe UI", 12, "bold")).pack(side="left")
         ttk.Button(topbar, text=self._tr("support"), command=self._support).pack(side="right")
         ttk.Button(topbar, text=self._tr("licenses"), command=self._show_licenses).pack(side="right", padx=(0, 8))
-        ttk.Button(topbar, text=self._tr("updates"), command=lambda: self._check_updates(manual=True)).pack(side="right", padx=(0, 8))
+        menubar = tk.Menu(self)
+        help_menu = tk.Menu(menubar, tearoff=False)
+        help_menu.add_command(label="アップデートを確認" if self.lang == "ja" else "Check for Updates",
+                              command=lambda: self._check_updates(manual=True))
+        help_menu.add_checkbutton(label="起動時に更新を確認する" if self.lang == "ja" else "Check for updates at startup",
+                                  variable=self.auto_check_updates, command=self._save_settings)
+        menubar.add_cascade(label="ヘルプ" if self.lang == "ja" else "Help", menu=help_menu)
+        self.configure(menu=menubar)
 
         ttk.Label(main, text=self._tr("video_url")).pack(anchor="w", padx=14, pady=(8, 5))
         urlrow = ttk.Frame(main)
@@ -411,6 +425,7 @@ class App(tk.Tk):
         self.url_entry = ttk.Entry(urlrow, textvariable=self.url_var)
         self.url_entry.pack(side="left", fill="x", expand=True)
         self._install_entry_context_menu(self.url_entry)
+        self.url_entry.bind("<ButtonRelease-1>", self._select_url)
         ttk.Button(urlrow, text=self._tr("paste"), command=self._paste).pack(side="left", padx=(8, 0))
         self.analyze_btn = ttk.Button(urlrow, text=self._tr("reanalyze"), command=self._analyze_now)
         self.analyze_btn.pack(side="left", padx=(8, 0))
@@ -534,6 +549,10 @@ class App(tk.Tk):
             finally:
                 menu.grab_release()
         entry.bind("<Button-3>", popup)
+
+    def _select_url(self, event):
+        event.widget.selection_range(0, "end")
+        event.widget.icursor("end")
 
     def _paste(self):
         try:
@@ -1062,8 +1081,8 @@ class App(tk.Tk):
         if not self._validate_tools():
             return
         threading.Thread(target=self._update_ytdlp_worker, daemon=True).start()
-        if self.app_cfg.get("auto_check_updates", True):
-            threading.Thread(target=self._check_updates_worker, args=(False,), daemon=True).start()
+        if self.auto_check_updates.get():
+            self._check_updates()
 
     def _update_ytdlp_worker(self):
         if self.active_job or self.closing:
@@ -1083,34 +1102,36 @@ class App(tk.Tk):
             self.q.put(("log", f"[yt-dlp auto-update] Update check failed: {e}"))
 
     def _check_updates(self, manual=False):
+        if self.update_check_running:
+            return
+        self.update_check_running = True
         threading.Thread(target=self._check_updates_worker, args=(manual,), daemon=True).start()
 
     def _check_updates_worker(self, manual):
-        repo = (self.app_cfg.get("github_repo") or "").strip().strip("/")
-        if not repo:
-            if manual:
-                self.q.put(("update_info", ("The application update source has not been configured yet.\n\nSet github_repo in app_config.json to owner/repository after publishing on GitHub." if self.lang == "en" else "アプリ本体の更新先はまだ未設定です。\n\nGitHub公開後、app_config.json の github_repo に『owner/repository』を設定すると、起動時に最新版を自動確認できます。")))
-            return
-        url = f"https://api.github.com/repos/{repo}/releases/latest"
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": f"{APP_NAME}/{APP_VERSION}", "Accept": "application/vnd.github+json"})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            tag = data.get("tag_name") or ""
-            page = data.get("html_url") or f"https://github.com/{repo}/releases"
-            if version_tuple(tag) > version_tuple(APP_VERSION):
-                if not manual:
-                    today = time.strftime("%Y-%m-%d")
-                    if tag == self.skipped_update_version:
-                        return
-                    if tag == self.update_later_version and today == self.update_later_date:
-                        return
-                self.q.put(("update_available", (tag, page, manual)))
+            req = urllib.request.Request(UPDATE_URL, headers={
+                "User-Agent": f"{APP_NAME}/{APP_VERSION}", "Accept": "application/json",
+                "Cache-Control": "no-cache",
+            })
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                data = json.loads(resp.read(16384).decode("utf-8"))
+            version = data["version"]
+            if not isinstance(version, str) or not re.fullmatch(r"[0-9]{1,8}(?:\.[0-9]{1,8}){2}", version):
+                return
+            tag = f"v{version}"
+            if version_tuple(version) > version_tuple(APP_VERSION):
+                if not manual and (tag == self.skipped_update_version or (
+                    tag == self.update_later_version and time.strftime("%Y-%m-%d") == self.update_later_date
+                )):
+                    return
+                self.q.put(("update_available", (tag, OFFICIAL_DOWNLOAD_PAGE, manual)))
             elif manual:
-                self.q.put(("update_info", f"現在の v{APP_VERSION} が最新版です。" if self.lang == "ja" else f"v{APP_VERSION} is the latest version."))
-        except Exception as e:
-            if manual:
-                self.q.put(("update_info", (f"Could not check for updates.\n\n{e}" if self.lang == "en" else f"更新情報を確認できませんでした。\n\n{e}")))
+                self.q.put(("update_info", f"現在の v{APP_VERSION} が最新版です。" if self.lang == "ja"
+                            else f"v{APP_VERSION} is the latest version."))
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        finally:
+            self.q.put(("update_check_finished", None))
 
     def _show_update_dialog(self, tag, page, manual=False):
         dlg = tk.Toplevel(self)
@@ -1137,12 +1158,12 @@ class App(tk.Tk):
         buttons.pack(fill="x")
 
         def finish(choice):
-            if choice == "open":
-                webbrowser.open(page)
-            elif choice == "later":
+            if choice in ("open", "later"):
                 self.update_later_version = tag
                 self.update_later_date = time.strftime("%Y-%m-%d")
                 self._save_settings()
+                if choice == "open":
+                    webbrowser.open(page)
             elif choice == "skip":
                 self.skipped_update_version = tag
                 if self.update_later_version == tag:
@@ -1242,6 +1263,8 @@ class App(tk.Tk):
                     self._log(f"--- {job.title}: {job.state} ---")
                     # Failures stay in the list/log; no modal dialog blocks the next job.
                     self._start_next_job()
+                elif kind == "update_check_finished":
+                    self.update_check_running = False
                 elif kind == "update_info":
                     messagebox.showinfo("Update Check" if self.lang == "en" else "更新確認", value)
                 elif kind == "update_available":

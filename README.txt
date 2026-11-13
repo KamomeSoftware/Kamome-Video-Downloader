@@ -26,7 +26,7 @@ settings.json と yt-dlp の更新確認記録はアプリ本体と同じフォ�
 ・Firefox / Chrome / Edge のCookie利用
 ・日本語 / English対応（初回はWindowsの言語を自動判定）
 ・yt-dlpを1日1回自動更新確認
-・GitHub ReleasesでKamome Video Downloader本体の最新版を確認
+・公式サイトでKamome Video Downloader本体の最新版を確認
 ・Ko-fi「開発を支援」リンク
 
 公式情報

@@ -23,6 +23,14 @@ class RealDownload(unittest.TestCase):
             threading.Thread(target=server.serve_forever,daemon=True).start()
             try:
                 a=harness();a.cookie_var.set('None')
+                url=f'http://127.0.0.1:{server.server_port}/clip.mp4'
+                from types import MethodType
+                a._prepare_formats = MethodType(main.App._prepare_formats, a)
+                a._format_size = MethodType(main.App._format_size, a)
+                main.App._analyze_worker(a, url, 1, tuple(a._common_ytdlp_args()))
+                kind, payload = a.q.get_nowait()
+                self.assertEqual(kind, "analysis", payload)
+                self.assertTrue(payload[1].get("id"))
                 for code in ['FIRST','SECOND','FIRST']:
                     url=f'http://127.0.0.1:{server.server_port}/clip.mp4'
                     cmd=a._download_command(url,str(dest),None,'account_'+code+'.%(ext)s',False)
