@@ -131,6 +131,8 @@ class QueueTests(unittest.TestCase):
 @unittest.skipUnless(sys.platform=='win32', 'Windows UI smoke test')
 class WindowsUI(unittest.TestCase):
     def test_queue_controls_and_window(self):
+        original_load = main.App._load_settings
+        original_save = main.App._save_settings
         with patch.object(main.App,'_load_settings'), patch.object(main.App,'_save_settings'), \
              patch.object(main.App,'_background_startup_tasks'):
             a=main.App()
@@ -148,6 +150,15 @@ class WindowsUI(unittest.TestCase):
                 a.clipboard_append("https://example.org/new")
                 a.url_entry.event_generate("<<Paste>>")
                 self.assertEqual(a.url_var.get(), "https://example.org/new")
+                import tempfile
+                with tempfile.TemporaryDirectory() as tmp:
+                    settings = Path(tmp) / "settings.json"
+                    with patch.object(main, "config_path", return_value=settings):
+                        a.auto_check_updates.set(False)
+                        original_save(a)
+                        a.auto_check_updates.set(True)
+                        original_load(a)
+                        self.assertFalse(a.auto_check_updates.get())
             finally: a.destroy()
 
 if __name__=='__main__': unittest.main()

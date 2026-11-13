@@ -52,6 +52,15 @@ try {
 
     Copy-Item -LiteralPath $FFmpegFound.FullName -Destination $FFmpeg -Force
     Copy-Item -LiteralPath $FFprobeFound.FullName -Destination $FFprobe -Force
+    $License = Get-ChildItem -LiteralPath $TempDir -Recurse -File -Filter 'LICENSE' | Select-Object -First 1
+    if ($null -eq $License) { throw 'FFmpeg license is missing from the archive.' }
+    New-Item -ItemType Directory -Force (Join-Path $Base 'licenses') | Out-Null
+    Copy-Item -LiteralPath $License.FullName -Destination (Join-Path $Base 'licenses/FFmpeg-LICENSE.txt') -Force
+    $Build = & $FFmpeg -version
+    $Version = [regex]::Match($Build[0], 'ffmpeg version (\d+\.\d+(?:\.\d+)?)').Groups[1].Value
+    if (-not $Version) { throw 'Could not identify the FFmpeg source version.' }
+    @("Binary provider: https://www.gyan.dev/ffmpeg/builds/", "Corresponding FFmpeg source: https://ffmpeg.org/releases/ffmpeg-$Version.tar.xz", "", $Build) |
+        Set-Content -Encoding UTF8 (Join-Path $Base 'licenses/FFmpeg-source.txt')
     Write-Host 'FFmpeg ready.'
 }
 finally {
